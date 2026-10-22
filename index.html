@@ -143,6 +143,21 @@ tr:hover td { background: var(--surface-2); }
 footer { color: var(--muted); font-size: 12px; margin-top: 28px; text-align: center; }
 #dash { display: none; }
 .hidden { display: none !important; }
+
+/* Pestañas */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 14px; font: inherit; font-weight: 600; color: var(--text-2); cursor: pointer; margin-bottom: -1px; }
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+tr.sel td { background: var(--accent-soft) !important; }
+#tPMList tbody tr { cursor: pointer; }
+.heat td.h { position: relative; }
+.lcsum { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--text-2); margin-bottom: 10px; }
+.lcsum b { color: var(--text); font-weight: 600; }
+.dq li { margin: 4px 0; color: var(--text-2); }
+.dq b { color: var(--text); }
+.legend-row { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-2); margin: 0 0 8px; }
+.legend-row i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
 </style>
 </head>
 <body>
@@ -169,16 +184,21 @@ footer { color: var(--muted); font-size: 12px; margin-top: 28px; text-align: cen
   </section>
 
   <main id="dash">
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tabBtnCurso" aria-selected="true" aria-controls="tabCurso">En curso</button>
+      <button class="tab" role="tab" id="tabBtnPM" aria-selected="false" aria-controls="tabPM">Terminados · post mortem</button>
+    </nav>
     <div class="filters" id="filters">
-      <div class="fgroup" id="segChips"><label>Segmento</label></div>
+      <div class="fgroup" id="segChips" data-tab="curso"><label>Segmento</label></div>
       <div class="fgroup"><label for="q">Buscar</label><input type="search" id="q" placeholder="Cliente, producto, pedido, terminación"></div>
-      <div class="fgroup"><label for="umbral">Estancado si</label><input type="number" id="umbral" min="1" max="120" value="7"><span style="color:var(--text-2)">días sin moverse</span></div>
+      <div class="fgroup" data-tab="curso"><label for="umbral">Estancado si</label><input type="number" id="umbral" min="1" max="120" value="7"><span style="color:var(--text-2)">días sin moverse</span></div>
       <div class="fgroup"><label for="periodo">Histórico</label>
         <select id="periodo"><option value="30">Últimos 30 días</option><option value="60">Últimos 60 días</option><option value="90" selected>Últimos 90 días</option><option value="180">Últimos 180 días</option><option value="0">Todo</option></select>
       </div>
+      <div class="fgroup hidden" data-tab="pm"><label for="objetivo">Objetivo</label><input type="number" id="objetivo" min="1" max="365" value="30"><span style="color:var(--text-2)">días de producción</span></div>
     </div>
 
-    <div class="grid">
+    <div class="grid" id="tabCurso" role="tabpanel">
       <div id="warns" class="warnbox hidden"></div>
       <div class="kpis" id="kpis"></div>
 
@@ -271,6 +291,63 @@ footer { color: var(--muted); font-size: 12px; margin-top: 28px; text-align: cen
           <button class="btn" id="csvAll" type="button">Descargar CSV</button>
         </div>
         <div class="tablewrap" id="tAll"></div>
+      </div>
+    </div>
+    <div class="grid hidden" id="tabPM" role="tabpanel">
+      <div class="warnbox">Análisis de los ítems de la hoja TERMINADOS terminados en el período elegido (por fecha de terminado). Los tiempos de cada etapa se calculan con las fechas de cada marca. Los terminados no tienen segmento, así que ese filtro no aplica en esta pestaña.</div>
+      <div class="kpis" id="pmKpis"></div>
+
+      <div class="section-title">¿En qué se fue el tiempo?</div>
+      <div class="card span-8">
+        <h3>Composición del ciclo de vida</h3>
+        <div class="sub">Días promedio en cada etapa, para todos los ítems y separando por duración total. Muestra qué hace lentos a los pedidos lentos.</div>
+        <div class="chart tall"><canvas id="cComp"></canvas></div>
+      </div>
+      <div class="card span-4">
+        <h3>Etapa que más demoró a cada ítem</h3>
+        <div class="sub">Cantidad de ítems según la etapa en la que pasaron más tiempo.</div>
+        <div class="chart tall"><canvas id="cBottle"></canvas></div>
+      </div>
+
+      <div class="card span-6">
+        <h3>Evolución mensual por etapa</h3>
+        <div class="sub">Mediana de días en cada etapa, por mes de terminado (todo el historial).</div>
+        <div class="chart"><canvas id="cMonthly"></canvas></div>
+      </div>
+      <div class="card span-6">
+        <h3>Recorridos más frecuentes</h3>
+        <div class="sub">Secuencia de sectores registrada y su tiempo total.</div>
+        <div class="tablewrap" id="tRoutes" style="max-height:300px"></div>
+      </div>
+
+      <div class="card span-12">
+        <h3>Tiempos por terminación</h3>
+        <div class="sub">Mediana de días por etapa (ítems con trazabilidad). Cuanto más intenso el fondo, más lenta la etapa en comparación con las otras terminaciones.</div>
+        <div class="tablewrap" id="tTermPM" style="max-height:420px"></div>
+      </div>
+
+      <div class="section-title">Ciclo de vida de cada ítem</div>
+      <div class="card span-12">
+        <h3 id="lcTitle">Línea de tiempo</h3>
+        <div class="lcsum" id="lcSum"></div>
+        <div class="chart" style="height:260px"><canvas id="cLife"></canvas></div>
+        <div class="hint">Elegí un ítem en la tabla de abajo para ver su recorrido. Las etapas sin fecha de inicio o fin no se pueden dibujar y quedan como “sin registrar”.</div>
+      </div>
+      <div class="card span-12">
+        <div class="toolbar">
+          <div>
+            <h3>Ítems terminados del período <span class="pill" id="pmCount">0</span></h3>
+            <p class="sub">Ordenados del más lento al más rápido. Hacé clic en una fila para ver su línea de tiempo.</p>
+          </div>
+          <button class="btn" id="csvPM" type="button">Descargar CSV</button>
+        </div>
+        <div class="tablewrap" id="tPMList"></div>
+      </div>
+
+      <div class="card span-12">
+        <h3>Calidad de los datos</h3>
+        <div class="sub">Casos que impiden medir bien el ciclo de vida. Corregirlos en las planillas mejora el análisis.</div>
+        <ul class="dq" id="dq"></ul>
       </div>
     </div>
     <footer>Los datos se procesan localmente en este navegador. La última planilla cargada queda guardada en este equipo para la próxima visita.</footer>
@@ -596,6 +673,53 @@ var MODEL = (function () {
     };
   }
 
+  // Ciclo de vida de un ítem terminado: tramos con fecha de inicio y fin
+  var LC_CATS = [
+    { k: 'alm', l: 'Almacén' }, { k: 'almpi', l: 'Almacén + pulido int. (sin separar)' },
+    { k: 'pext', l: 'Pulido externo' }, { k: 'pint', l: 'Pulido interno' }, { k: 'galv', l: 'Galvano' },
+    { k: 'pin', l: 'Pintura' }, { k: 'arm', l: 'Armado' }, { k: 'post', l: 'Post-armado (hasta terminado)' },
+    { k: 'unrec', l: 'Sin registrar' }
+  ];
+  function lifecycle(it) {
+    var cp = it.cp, segs = [], anomalies = [];
+    function maxOf(a, b) { return a == null ? b : (b == null ? a : Math.max(a, b)); }
+    function add(k, from, to) {
+      if (from == null || to == null) return;
+      if (to < from - 0.01) { anomalies.push('Fechas fuera de orden (' + k + ')'); return; }
+      segs.push({ k: k, from: from, to: Math.max(from, to) });
+    }
+    var salidaExt = (cp.SK != null || cp.SJ != null) ? Math.min(cp.SK == null ? Infinity : cp.SK, cp.SJ == null ? Infinity : cp.SJ) : null;
+    var entradaExt = maxOf(cp.EK, cp.EJ);
+    if (salidaExt != null) {
+      add('alm', it.fecha, salidaExt);
+      if (entradaExt != null) add('pext', salidaExt, entradaExt);
+      if (cp.PI != null && entradaExt != null) add('pint', entradaExt, cp.PI);
+    } else if (cp.PI != null) add('almpi', it.fecha, cp.PI);
+    var finGalv = maxOf(cp.GA, cp.CO);
+    if (finGalv != null && cp.PI != null) add('galv', cp.PI, finGalv);
+    var prevPin = finGalv != null ? finGalv : cp.PI;
+    if (cp.PIN != null && prevPin != null) add('pin', prevPin, cp.PIN);
+    var prevArm = cp.PIN != null ? cp.PIN : (finGalv != null ? finGalv : cp.PI);
+    if (cp.AR != null && prevArm != null) add('arm', prevArm, cp.AR);
+    if (cp.AR != null && it.fterm != null) {
+      if (Math.floor(cp.AR) > it.fterm) anomalies.push('Armado posterior a la fecha de terminado');
+      else add('post', cp.AR, Math.max(cp.AR, it.fterm));
+    }
+    var comp = {}, known = 0;
+    segs.forEach(function (s) { var d = s.to - s.from; comp[s.k] = (comp[s.k] || 0) + d; known += d; });
+    var traced = Object.keys(cp).some(function (k) { return cp[k] != null; });
+    comp.unrec = traced ? Math.max(0, it.dprod - known) : null;
+    var bn = null, bv = -1;
+    for (var k in comp) if (k !== 'unrec' && comp[k] > bv) { bv = comp[k]; bn = k; }
+    var r = [];
+    if (cp.SK != null || cp.SJ != null) r.push('P. ext');
+    if (cp.PI != null) r.push('P. int');
+    if (cp.GA != null || cp.CO != null) r.push(cp.CO != null ? 'Galv. color' : 'Galv.');
+    if (cp.PIN != null) r.push('Pintura');
+    if (cp.AR != null) r.push('Armado');
+    it.lc = { segs: segs, comp: comp, traced: traced, bottleneck: bn, anomalies: anomalies, route: r.length ? r.join(' → ') : '(sin marcas)' };
+  }
+
   function routeOf(it) {
     var cp = it.cp, seq = [];
     if (cp.EK || cp.EJ) seq.push('EXT');
@@ -652,6 +776,8 @@ var MODEL = (function () {
       return DEFAULT_NEXT[from] || 'AR';
     }
 
+    done.forEach(lifecycle);
+
     pending.forEach(function (it) {
       var cp = it.cp;
       it.edad = cutoff - it.fecha;
@@ -678,16 +804,16 @@ var MODEL = (function () {
     return { excluded: excluded, pending: pending, done: done, cutoff: cutoff, warnings: warnings, segs: segs, STAGES: STAGES, HIST_STAGES: HIST_STAGES };
   }
 
-  return { build: build, STAGES: STAGES, HIST_STAGES: HIST_STAGES, norm: norm };
+  return { LC_CATS: LC_CATS, build: build, STAGES: STAGES, HIST_STAGES: HIST_STAGES, norm: norm };
 })();
 if (typeof module !== 'undefined') module.exports = MODEL;
 </script>
 <script>/* ===== Tablero ===== */
 (function () {
   'use strict';
-  var STORE_KEY = 'tablero_tiempos_entrega_v2';
+  var STORE_KEY = 'tablero_tiempos_entrega_v3';
   var DATA = null, FILE_NAME = '', charts = {};
-  var state = { segs: null, q: '', umbral: 7, periodo: 90, sector: '' };
+  var state = { segs: null, q: '', umbral: 7, periodo: 90, sector: '', tab: 'curso', objetivo: 30, lcSel: null };
   var $ = function (id) { return document.getElementById(id); };
 
   /* ---------- utilidades ---------- */
@@ -1134,9 +1260,293 @@ if (typeof module !== 'undefined') module.exports = MODEL;
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
   }
 
+  /* ================= Pestaña post mortem (terminados) ================= */
+  var LC_COLOR = { alm: '--s1', almpi: '--s8', pext: '--s2', pint: '--s3', galv: '--s4', pin: '--s5', arm: '--s6', post: '--s7', unrec: '--muted' };
+  var LC_LABEL = {}; MODEL.LC_CATS.forEach(function (c) { LC_LABEL[c.k] = c.l; });
+  var LC_SHORT = { alm: 'Almacén', almpi: 'Alm.+P.int', pext: 'P. ext', pint: 'P. int', galv: 'Galvano', pin: 'Pintura', arm: 'Armado', post: 'Post-arm.', unrec: 'Sin reg.' };
+  var STAGE_KEYS = ['alm', 'almpi', 'pext', 'pint', 'galv', 'pin', 'arm', 'post'];
+  function lcColor(k) { return css(LC_COLOR[k]); }
+  function itemKey(x) { return [x.pedido, x.codigo, x.producto, x.term, x.fterm, x.fecha, x.cant].join('|'); }
+  function fmt1(v) { return v == null ? '–' : fmtN(v, v < 10 ? 1 : 0); }
+
+  function renderPMKpis(D) {
+    var T = D.filter(function (x) { return x.lc.traced; });
+    var lt = D.map(function (x) { return x.dprod; });
+    var ok = D.filter(function (x) { return x.dprod <= state.objetivo; }).length;
+    var tot = {}, totAll = 0;
+    T.forEach(function (x) { STAGE_KEYS.forEach(function (k) { var v = x.lc.comp[k]; if (v) { tot[k] = (tot[k] || 0) + v; totAll += v; } }); });
+    var topK = Object.keys(tot).sort(function (a, b) { return tot[b] - tot[a]; })[0];
+    var post = T.map(function (x) { return x.lc.comp.post; }).filter(function (v) { return v != null; });
+    var post3 = post.filter(function (v) { return v > 3; }).length;
+    var noTr = D.length - T.length;
+    var ped = new Set(D.map(function (x) { return x.pedido; })).size;
+    var h = '';
+    h += kpi('Ítems terminados', fmtN(D.length), '', fmtN(ped) + ' ' + plural(ped, 'pedido', 'pedidos') + ' · ' + fmtN(D.reduce(function (s, x) { return s + (x.cant || 0); }, 0)) + ' u.');
+    h += kpi('Tiempo total (mediana)', fmtN(median(lt)), 'días', 'El 10 % más lento tardó más de ' + fmtN(quant(lt, .9)) + ' d');
+    h += kpi('Dentro del objetivo', D.length ? fmtN(ok / D.length * 100) : '–', '%', fmtN(ok) + ' de ' + fmtN(D.length) + ' en ' + state.objetivo + ' días o menos');
+    h += kpi('Etapa que más tiempo consume', topK ? esc(LC_SHORT[topK]) : '–', '', topK ? fmtN(tot[topK] / totAll * 100) + ' % del tiempo registrado' : '');
+    h += kpi('Espera post-armado', fmt1(median(post)), 'días', fmtN(post3) + ' ' + plural(post3, 'ítem esperó', 'ítems esperaron') + ' más de 3 días');
+    h += kpi('Sin trazabilidad', fmtN(noTr), '', (D.length ? fmtN(noTr / D.length * 100) : '–') + ' % sin ninguna marca de sector');
+    $('pmKpis').innerHTML = h;
+  }
+
+  function renderComp(D) {
+    var T = D.filter(function (x) { return x.lc.traced; });
+    var rows = [{ l: 'Todos', f: function () { return true; } }].concat([[0, 15], [16, 30], [31, 45], [46, 60], [61, 90], [91, 1e9]].map(function (b) {
+      return { l: b[1] > 1e8 ? 'Más de 90 d' : b[0] + '–' + b[1] + ' d', f: function (x) { return x.dprod >= b[0] && x.dprod <= b[1]; } };
+    }));
+    var groups = rows.map(function (r) { return T.filter(r.f); });
+    var keep = rows.map(function (r, i) { return groups[i].length > 0; });
+    var labels = rows.filter(function (r, i) { return keep[i]; }).map(function (r) { return r.l; });
+    var G = groups.filter(function (g, i) { return keep[i]; });
+    var cats = STAGE_KEYS.concat(['unrec']).filter(function (k) { return T.some(function (x) { return x.lc.comp[k] > 0; }); });
+    var ds = cats.map(function (k) {
+      return stackDs(LC_LABEL[k], G.map(function (g) { return +(g.reduce(function (s, x) { return s + (x.lc.comp[k] || 0); }, 0) / g.length).toFixed(2); }), lcColor(k));
+    });
+    mk('cComp', {
+      type: 'bar', data: { labels: labels, datasets: ds },
+      options: baseOpts({
+        indexAxis: 'y', interaction: { mode: 'index', axis: 'y', intersect: false },
+        plugins: {
+          legend: { display: true },
+          tooltip: {
+            filter: function (i) { return i.raw > 0.05; },
+            callbacks: {
+              label: function (i) {
+                var tot = 0; i.chart.data.datasets.forEach(function (d) { tot += d.data[i.dataIndex]; });
+                return i.dataset.label + ': ' + fmtN(i.raw, 1) + ' d (' + fmtN(i.raw / tot * 100) + ' %)';
+              },
+              footer: function (i) { var g = G[i[0].dataIndex]; return fmtN(g.length) + ' ítems · total promedio ' + fmtN(mean(g.map(function (x) { return x.dprod; }))) + ' d'; }
+            }
+          }
+        },
+        scales: { x: { stacked: true, title: { display: true, text: 'Días promedio', color: css('--muted') } }, y: { stacked: true, grid: { display: false }, ticks: { color: css('--text-2') } } }
+      })
+    });
+  }
+
+  function renderBottle(D) {
+    var T = D.filter(function (x) { return x.lc.traced && x.lc.bottleneck; });
+    var c = {}; T.forEach(function (x) { c[x.lc.bottleneck] = (c[x.lc.bottleneck] || 0) + 1; });
+    var ks = STAGE_KEYS.filter(function (k) { return c[k]; }).sort(function (a, b) { return c[b] - c[a]; });
+    mk('cBottle', {
+      type: 'bar',
+      data: { labels: ks.map(function (k) { return LC_SHORT[k]; }), datasets: [barDs('Ítems', ks.map(function (k) { return c[k]; }), ks.map(lcColor), { hoverBackgroundColor: ks.map(lcColor) })] },
+      options: baseOpts({
+        indexAxis: 'y',
+        plugins: { tooltip: { callbacks: { title: function (i) { return LC_LABEL[ks[i[0].dataIndex]]; }, footer: function (i) { return fmtN(i[0].raw / T.length * 100) + ' % de los ítems con trazabilidad'; } } } },
+        scales: { y: { grid: { display: false }, ticks: { color: css('--text-2') } }, x: { ticks: { precision: 0 }, title: { display: true, text: 'Ítems', color: css('--muted') } } }
+      })
+    });
+  }
+
+  function renderMonthly() {
+    var D = DATA.done.filter(function (x) { return matchQ(x) && x.lc.traced; });
+    var g = {};
+    D.forEach(function (x) { var d = serialToDate(x.fterm); var m = d.getUTCFullYear() * 12 + d.getUTCMonth(); (g[m] = g[m] || []).push(x); });
+    var months = Object.keys(g).map(Number).sort(function (a, b) { return a - b; });
+    var MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    var keys = ['alm', 'pext', 'pint', 'galv', 'pin', 'arm', 'post'];
+    var ds = keys.map(function (k) {
+      var c = lcColor(k);
+      return { label: LC_SHORT[k], data: months.map(function (m) { var v = g[m].map(function (x) { return x.lc.comp[k]; }).filter(function (v) { return v != null; }); return v.length >= 3 ? +median(v).toFixed(1) : null; }), borderColor: c, backgroundColor: c, borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0.25, spanGaps: true };
+    });
+    mk('cMonthly', {
+      type: 'line', data: { labels: months.map(function (m) { return MES[m % 12] + ' ' + String(Math.floor(m / 12)).slice(2); }), datasets: ds },
+      options: baseOpts({
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: true }, tooltip: { itemSort: function (a, b) { return b.raw - a.raw; }, callbacks: { label: function (i) { return i.dataset.label + ': ' + fmtN(i.raw, 1) + ' d'; }, footer: function (i) { return fmtN(g[months[i[0].dataIndex]].length) + ' ítems terminados en el mes'; } } } },
+        scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: 'Días (mediana)', color: css('--muted') } } }
+      })
+    });
+  }
+
+  function simpleTable(id, cols, rows, opts) {
+    opts = opts || {};
+    var h = '<table' + (opts.cls ? ' class="' + opts.cls + '"' : '') + '><thead><tr>' + cols.map(function (c) {
+      return '<th class="' + (c.n ? 'n' : '') + '" data-k="' + c.k + '">' + c.l + (opts.sort && opts.sort.k === c.k ? '<span class="arr">' + (opts.sort.dir < 0 ? '▼' : '▲') + '</span>' : '') + '</th>';
+    }).join('') + '</tr></thead><tbody>';
+    h += rows.map(function (r, ri) {
+      return '<tr data-i="' + ri + '"' + (opts.selected && opts.selected(r) ? ' class="sel"' : '') + '>' + cols.map(function (c) {
+        var st = c.style ? c.style(r) : '';
+        return '<td class="' + (c.n ? 'n' : '') + (c.wrap ? ' wrapcell' : '') + '"' + (st ? ' style="' + st + '"' : '') + '>' + (c.html ? c.html(r) : esc(c.txt(r))) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+    h += '</tbody></table>';
+    $(id).innerHTML = rows.length ? h : '<div class="empty">Sin datos para mostrar.</div>';
+  }
+
+  function renderRoutes(D) {
+    var g = {};
+    D.forEach(function (x) { (g[x.lc.route] = g[x.lc.route] || []).push(x); });
+    var ks = Object.keys(g).sort(function (a, b) { return g[b].length - g[a].length; }).slice(0, 12);
+    var rows = ks.map(function (k) {
+      var a = g[k], bc = {};
+      a.forEach(function (x) { if (x.lc.bottleneck) bc[x.lc.bottleneck] = (bc[x.lc.bottleneck] || 0) + 1; });
+      var top = Object.keys(bc).sort(function (p, q) { return bc[q] - bc[p]; })[0];
+      return { route: k, n: a.length, med: median(a.map(function (x) { return x.dprod; })), top: top };
+    });
+    simpleTable('tRoutes', [
+      { k: 'route', l: 'Recorrido', txt: function (r) { return r.route; } },
+      { k: 'n', l: 'Ítems', n: true, txt: function (r) { return fmtN(r.n); } },
+      { k: 'med', l: 'Mediana total', n: true, txt: function (r) { return fmtN(r.med) + ' d'; } },
+      { k: 'top', l: 'Suele demorar en', html: function (r) { return r.top ? '<span class="badge" style="font-weight:500"><i style="background:var(' + LC_COLOR[r.top] + ')"></i>' + esc(LC_SHORT[r.top]) + '</span>' : '–'; } }
+    ], rows);
+  }
+
+  function renderTermPM(D) {
+    var g = {};
+    D.forEach(function (x) { (g[x.termLabel] = g[x.termLabel] || []).push(x); });
+    var keys = ['alm', 'almpi', 'pext', 'pint', 'galv', 'pin', 'arm', 'post'];
+    var rows = Object.keys(g).filter(function (k) { return g[k].length >= 5; }).map(function (k) {
+      var a = g[k], r = { term: k, n: a.length, med: median(a.map(function (x) { return x.dprod; })), p90: quant(a.map(function (x) { return x.dprod; }), .9), ok: a.filter(function (x) { return x.dprod <= state.objetivo; }).length / a.length * 100 };
+      keys.forEach(function (s) { var v = a.map(function (x) { return x.lc.comp[s]; }).filter(function (v) { return v != null; }); r[s] = v.length >= 3 ? median(v) : null; });
+      return r;
+    }).sort(function (a, b) { return b.med - a.med; });
+    var mx = {}; keys.forEach(function (s) { mx[s] = Math.max.apply(null, rows.map(function (r) { return r[s] || 0; }).concat([0.001])); });
+    var cols = [
+      { k: 'term', l: 'Terminación', txt: function (r) { return r.term; } },
+      { k: 'n', l: 'Ítems', n: true, txt: function (r) { return fmtN(r.n); } },
+      { k: 'med', l: 'Total (mediana)', n: true, html: function (r) { return '<b>' + fmtN(r.med) + ' d</b>'; } },
+      { k: 'p90', l: 'Total P90', n: true, txt: function (r) { return fmtN(r.p90) + ' d'; } },
+      { k: 'ok', l: '% en objetivo', n: true, txt: function (r) { return fmtN(r.ok) + ' %'; } }
+    ].concat(keys.map(function (s) {
+      return {
+        k: s, l: LC_SHORT[s], n: true, txt: function (r) { return fmt1(r[s]); },
+        style: function (r) { return r[s] == null ? '' : 'background:color-mix(in srgb, var(--s1) ' + Math.round(4 + 40 * r[s] / mx[s]) + '%, transparent)'; }
+      };
+    }));
+    simpleTable('tTermPM', cols, rows, { cls: 'heat' });
+  }
+
+  var pmSort = { k: 'dprod', dir: -1 }, pmRows = [];
+  var PM_COLS = [
+    { k: 'dprod', l: 'Total días', n: true, get: function (x) { return x.dprod; }, html: function (x) { return '<b>' + fmtN(x.dprod) + '</b>'; }, csv: function (x) { return x.dprod; } },
+    { k: 'fecha', l: 'F. pedido', get: function (x) { return x.fecha; }, txt: function (x) { return fmtDate(x.fecha); } },
+    { k: 'fterm', l: 'F. terminado', get: function (x) { return x.fterm; }, txt: function (x) { return fmtDate(x.fterm); } },
+    { k: 'nro', l: 'Pedido', get: function (x) { return x.pedido; }, txt: function (x) { return x.nro; } },
+    { k: 'cliente', l: 'Cliente', get: function (x) { return x.cliente; }, txt: function (x) { return x.cliente; } },
+    { k: 'producto', l: 'Producto', get: function (x) { return x.producto; }, txt: function (x) { return x.producto; } },
+    { k: 'term', l: 'Terminación', get: function (x) { return x.term; }, txt: function (x) { return x.term; } },
+    { k: 'bn', l: 'Mayor demora', get: function (x) { return x.lc.bottleneck ? x.lc.comp[x.lc.bottleneck] : -1; }, html: function (x) { var b = x.lc.bottleneck; return b ? '<span class="badge" style="font-weight:500"><i style="background:var(' + LC_COLOR[b] + ')"></i>' + esc(LC_SHORT[b]) + ' · ' + fmt1(x.lc.comp[b]) + ' d</span>' : '–'; }, csv: function (x) { var b = x.lc.bottleneck; return b ? LC_SHORT[b] + ' ' + fmt1(x.lc.comp[b]) : ''; } }
+  ].concat(['alm', 'almpi', 'pext', 'pint', 'galv', 'pin', 'arm', 'post', 'unrec'].map(function (s) {
+    return { k: s, l: LC_SHORT[s], n: true, get: function (x) { var v = x.lc.comp[s]; return v == null ? -1 : v; }, txt: function (x) { return fmt1(x.lc.comp[s]); } };
+  })).concat([{ k: 'route', l: 'Recorrido', get: function (x) { return x.lc.route; }, txt: function (x) { return x.lc.route; } }]);
+
+  function renderPMList(D) {
+    var col = PM_COLS.filter(function (c) { return c.k === pmSort.k; })[0];
+    pmRows = D.slice().sort(function (a, b) {
+      var va = col.get(a), vb = col.get(b);
+      if (typeof va === 'string' || typeof vb === 'string') return String(va).localeCompare(String(vb), 'es') * pmSort.dir;
+      return ((va || 0) - (vb || 0)) * pmSort.dir;
+    });
+    $('pmCount').textContent = fmtN(pmRows.length);
+    var shown = pmRows.slice(0, 500);
+    simpleTable('tPMList', PM_COLS, shown, { sort: pmSort, selected: function (x) { return itemKey(x) === state.lcSel; } });
+    if (pmRows.length > 500) $('tPMList').insertAdjacentHTML('beforeend', '<div class="hint" style="padding:8px 10px">Mostrando 500 de ' + fmtN(pmRows.length) + '. Descargá el CSV para ver todos.</div>');
+    Array.prototype.forEach.call($('tPMList').querySelectorAll('th'), function (th) {
+      th.addEventListener('click', function () {
+        var k = th.getAttribute('data-k');
+        if (pmSort.k === k) pmSort.dir = -pmSort.dir; else { pmSort.k = k; pmSort.dir = ['fecha', 'fterm', 'nro', 'cliente', 'producto', 'term', 'route'].indexOf(k) >= 0 ? 1 : -1; }
+        renderPMList(D);
+      });
+    });
+    Array.prototype.forEach.call($('tPMList').querySelectorAll('tbody tr'), function (tr) {
+      tr.addEventListener('click', function () {
+        var x = shown[+tr.getAttribute('data-i')];
+        state.lcSel = itemKey(x);
+        Array.prototype.forEach.call($('tPMList').querySelectorAll('tr.sel'), function (r) { r.classList.remove('sel'); });
+        tr.classList.add('sel');
+        renderLife(x);
+        $('cLife').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+  }
+
+  function renderLife(x) {
+    if (!x) { $('lcTitle').textContent = 'Línea de tiempo'; $('lcSum').innerHTML = '<span>No hay ítems en el período.</span>'; mk('cLife', { type: 'bar', data: { labels: [], datasets: [] }, options: baseOpts() }); return; }
+    var segs = x.lc.segs.slice().sort(function (a, b) { return a.from - b.from; });
+    var b = x.lc.bottleneck;
+    $('lcTitle').textContent = 'Línea de tiempo · ' + x.producto + ' (' + x.term + ')';
+    var s = '<span>Pedido <b>' + esc(x.nro) + '</b></span><span>Cliente <b>' + esc(x.cliente) + '</b></span>' +
+      '<span>Del <b>' + fmtDate(x.fecha) + '</b> al <b>' + fmtDate(x.fterm) + '</b>: <b>' + fmtN(x.dprod) + ' días</b></span>' +
+      '<span>Recorrido <b>' + esc(x.lc.route) + '</b></span>';
+    if (b) s += '<span>Mayor demora <b>' + esc(LC_LABEL[b]) + ' (' + fmt1(x.lc.comp[b]) + ' d, ' + fmtN(x.lc.comp[b] / Math.max(1, x.dprod) * 100) + ' %)</b></span>';
+    if (x.lc.comp.unrec > 0.5) s += '<span>Sin registrar <b>' + fmt1(x.lc.comp.unrec) + ' d</b></span>';
+    if (x.lc.anomalies.length) s += '<span style="color:var(--critical-ink)">⚠ ' + esc(x.lc.anomalies.join(' · ')) + '</span>';
+    if (x.obs) s += '<span>Obs. <b>' + esc(x.obs) + '</b></span>';
+    $('lcSum').innerHTML = s;
+    var labels = ['Total del pedido'].concat(segs.map(function (g) { return LC_LABEL[g.k]; }));
+    var data = [[x.fecha, x.fterm]].concat(segs.map(function (g) { return [g.from, Math.max(g.to, g.from + 0.15)]; }));
+    var real = [[x.fecha, x.fterm]].concat(segs.map(function (g) { return [g.from, g.to]; }));
+    var colors = [css('--grid')].concat(segs.map(function (g) { return lcColor(g.k); }));
+    mk('cLife', {
+      type: 'bar',
+      data: { labels: labels, datasets: [{ label: 'Etapa', data: data, backgroundColor: colors, hoverBackgroundColor: colors, borderRadius: 4, borderSkipped: false, barPercentage: 0.7, categoryPercentage: 0.9 }] },
+      options: baseOpts({
+        indexAxis: 'y',
+        plugins: { tooltip: { callbacks: { label: function (i) { var r = real[i.dataIndex]; return fmtDate(Math.floor(r[0])) + ' → ' + fmtDate(Math.floor(r[1])) + ' · ' + fmtN(r[1] - r[0], 1) + ' días'; } } } },
+        scales: {
+          x: { type: 'linear', min: x.fecha - 0.5, max: x.fterm + 1, ticks: { callback: function (v) { return fmtDM(v); }, maxRotation: 0, autoSkipPadding: 14 } },
+          y: { grid: { display: false }, ticks: { color: css('--text-2') } }
+        }
+      })
+    });
+  }
+
+  function renderDQ(D) {
+    var noTr = D.filter(function (x) { return !x.lc.traced; }).length;
+    var almpi = D.filter(function (x) { return x.lc.comp.almpi != null; }).length;
+    var ord = D.filter(function (x) { return x.lc.anomalies.some(function (a) { return a.indexOf('fuera de orden') >= 0; }); }).length;
+    var arm = D.filter(function (x) { return x.lc.anomalies.some(function (a) { return a.indexOf('posterior') >= 0; }); }).length;
+    var noAr = D.filter(function (x) { return x.lc.traced && !x.cp.AR; }).length;
+    var n = D.length || 1;
+    function li(c, t) { return '<li><b>' + fmtN(c) + '</b> (' + fmtN(c / n * 100) + ' %) ' + t + '</li>'; }
+    $('dq').innerHTML =
+      li(noTr, 'terminados sin ninguna fecha de sector: no se puede saber dónde estuvieron.') +
+      li(almpi, 'sin pulido externo: el tiempo de almacén y de pulido interno queda junto, porque no hay una fecha que los separe.') +
+      li(noAr, 'con marcas de sector pero sin fecha de armado: el tramo final queda “sin registrar”.') +
+      li(ord, 'con fechas fuera de orden (por ejemplo, salida de un sector anterior a la del sector previo).') +
+      li(arm, 'con fecha de armado posterior a la fecha de terminado.');
+  }
+
+  function renderPM() {
+    var D = doneF(0);
+    renderPMKpis(D); renderComp(D); renderBottle(D); renderMonthly(); renderRoutes(D); renderTermPM(D); renderDQ(D);
+    renderPMList(D);
+    var sel = D.filter(function (x) { return itemKey(x) === state.lcSel; })[0];
+    if (!sel) { sel = pmRows.filter(function (x) { return x.lc.traced; })[0] || pmRows[0]; state.lcSel = sel ? itemKey(sel) : null; if (sel) renderPMList(D); }
+    renderLife(sel);
+  }
+  function downloadPM() {
+    var lines = [PM_COLS.map(function (c) { return c.l; }).join(';')];
+    pmRows.forEach(function (x) {
+      lines.push(PM_COLS.map(function (c) {
+        var v = c.csv ? c.csv(x) : c.txt(x); v = String(v == null ? '' : v);
+        return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      }).join(';'));
+    });
+    var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'terminados_' + fmtDate(DATA.cutoff).replace(/\//g, '-') + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  }
+  function setTab(tab) {
+    state.tab = tab;
+    $('tabBtnCurso').setAttribute('aria-selected', tab === 'curso' ? 'true' : 'false');
+    $('tabBtnPM').setAttribute('aria-selected', tab === 'pm' ? 'true' : 'false');
+    $('tabCurso').classList.toggle('hidden', tab !== 'curso');
+    $('tabPM').classList.toggle('hidden', tab !== 'pm');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tab]'), function (el) { el.classList.toggle('hidden', el.getAttribute('data-tab') !== tab); });
+    try { localStorage.setItem(STORE_KEY + '_tab', tab); } catch (e) {}
+    renderAll();
+  }
+
   /* ---------- render general ---------- */
   function renderAll() {
     if (!DATA) return;
+    if (state.tab === 'pm') { renderPM(); return; }
     var P = pendingF(), D = doneF(0), Dp = doneF(1);
     renderKpis(P, D, Dp);
     renderSector(P); renderAging(P); renderStuck(P);
@@ -1177,7 +1587,8 @@ if (typeof module !== 'undefined') module.exports = MODEL;
     if (DATA.warnings && DATA.warnings.length) { w.innerHTML = DATA.warnings.map(esc).join('<br>'); w.classList.remove('hidden'); }
     else w.classList.add('hidden');
     setupFilters();
-    renderAll();
+    state.lcSel = null;
+    setTab(state.tab);
   }
 
   /* ---------- carga de archivo ---------- */
@@ -1233,6 +1644,11 @@ if (typeof module !== 'undefined') module.exports = MODEL;
     $('sectorSel').addEventListener('change', function (e) { state.sector = e.target.value; renderStuck(pendingF()); });
     $('csvStuck').addEventListener('click', function () { downloadCsv('tStuck', 'estancados'); });
     $('csvAll').addEventListener('click', function () { downloadCsv('tAll', 'pendientes'); });
+    $('csvPM').addEventListener('click', downloadPM);
+    $('objetivo').addEventListener('change', function (e) { var v = parseInt(e.target.value, 10); if (v > 0) { state.objetivo = v; renderAll(); } });
+    $('tabBtnCurso').addEventListener('click', function () { setTab('curso'); });
+    $('tabBtnPM').addEventListener('click', function () { setTab('pm'); });
+    try { var tb = localStorage.getItem(STORE_KEY + '_tab'); if (tb === 'pm') state.tab = 'pm'; } catch (e) {}
 
     // Tema
     try { var th = localStorage.getItem(STORE_KEY + '_theme'); if (th) document.documentElement.setAttribute('data-theme', th); } catch (e) {}
